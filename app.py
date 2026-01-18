@@ -27,8 +27,9 @@ def load_embeddings():
     with open(emb_path, "rb") as f:
         celeb_db = pickle.load(f)
 
-    image_paths_db = np.load(img_path, allow_pickle=True).item()
+    image_paths_db = np.load(img_path, allow_pickle=True)
     return celeb_db, image_paths_db
+
 
 
 # Load cached resources
