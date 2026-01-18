@@ -65,6 +65,12 @@ if uploaded:
 
         # Generate embedding
         query_embedding = get_embedding(face, embedder)
+        if face is None:
+            st.error("No face detected. Please upload a clear image.")
+            st.stop()
+
+        query_embedding = get_embedding(face, embedder)
+
 
         # Find top 5 matches
         results = find_top_k(query_embedding, celeb_db, image_paths_db, k=5)
