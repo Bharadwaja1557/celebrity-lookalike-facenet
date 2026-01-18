@@ -1,0 +1,9 @@
+from keras_facenet import FaceNet
+import numpy as np
+
+embedder = FaceNet()
+
+def get_embedding(face):
+    face = face.astype('float32')
+    face = np.expand_dims(face, axis=0)
+    return embedder.embeddings(face)
