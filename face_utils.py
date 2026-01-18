@@ -1,21 +1,38 @@
 import cv2
-from mtcnn import MTCNN
+import numpy as np
 
-detector = MTCNN()
+def extract_face_from_array(image, detector, required_size=(160, 160)):
+    """
+    image: OpenCV BGR image
+    detector: MTCNN detector
+    returns: cropped and resized face array or None
+    """
+    # Convert BGR -> RGB for MTCNN
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-def extract_face_from_array(image, required_size=(160, 160)):
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    results = detector.detect_faces(image)
+    # Detect faces
+    results = detector.detect_faces(image_rgb)
     if len(results) == 0:
-        return None
+        return None  # No face detected
 
-    x, y, w, h = results[0]['box']
-    x, y = abs(x), abs(y)
+    # Take the first detected face
+    x, y, width, height = results[0]['box']
 
-    face = image[y:y+h, x:x+w]
+    # Sometimes MTCNN returns negative coords
+    x, y = max(0, x), max(0, y)
+
+    face = image_rgb[y:y+height, x:x+width]
+
     if face.size == 0:
         return None
 
-    face = cv2.resize(face, required_size)
+    # Resize safely
+    try:
+        face = cv2.resize(face, required_size)
+    except cv2.error:
+        return None
+
+    # Normalize to 0-1 float32
+    face = face.astype('float32') / 255.0
+
     return face
