@@ -5,9 +5,11 @@ import cv2
 from face_utils import extract_face_from_array
 from embedder import get_embedding
 from search import find_top_k
+import os
 
-
+# -------------------------------
 # Caching functions for efficiency
+# -------------------------------
 
 @st.cache_resource
 def load_models():
@@ -19,7 +21,6 @@ def load_models():
 
 @st.cache_data
 def load_embeddings():
-    import os
     base_dir = os.path.dirname(os.path.abspath(__file__))
     emb_path = os.path.join(base_dir, "embeddings", "celebrity_embeddings.pkl")
     img_path = os.path.join(base_dir, "embeddings", "image_paths.npy")
@@ -27,17 +28,19 @@ def load_embeddings():
     with open(emb_path, "rb") as f:
         celeb_db = pickle.load(f)
 
-    image_paths_db = np.load(img_path, allow_pickle=True)
+    image_paths_db = np.load(img_path, allow_pickle=True)  # <-- fixed: remove .item()
     return celeb_db, image_paths_db
 
-
-
+# -------------------------------
 # Load cached resources
+# -------------------------------
 
 embedder, detector = load_models()
 celeb_db, image_paths_db = load_embeddings()
 
+# -------------------------------
 # Streamlit UI
+# -------------------------------
 
 st.title("Celebrity Lookalike Finder")
 st.write("Upload a face image and find your top 5 celebrity lookalikes!")
@@ -56,6 +59,10 @@ if uploaded:
     if face is None:
         st.error("No face detected. Please upload a clear frontal face.")
     else:
+        # Ensure correct shape for FaceNet
+        if len(face.shape) == 3:
+            face = np.expand_dims(face, axis=0)
+
         # Generate embedding
         query_embedding = get_embedding(face, embedder)
 
@@ -67,8 +74,11 @@ if uploaded:
             col1, col2 = st.columns([1, 2])
 
             match_img = cv2.imread(img_path)
-            match_img = cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB)
+            if match_img is not None:
+                match_img = cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB)
+                col1.image(match_img, width=120)
+            else:
+                col1.write("Image not found")
 
-            col1.image(match_img, width=120)
             col2.write(f"**{celeb}**")
             col2.write(f"Similarity: {score:.3f}")
