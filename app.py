@@ -6,6 +6,7 @@ from face_utils import extract_face_from_array
 from embedder import get_embedding
 from search import find_top_k
 import os
+os.environ["KERAS_BACKEND"] = "tensorflow"
 
 # -------------------------------
 # Caching functions for efficiency
