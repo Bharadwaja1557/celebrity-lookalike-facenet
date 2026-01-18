@@ -1,7 +1,7 @@
 streamlit
-tensorflow
+tensorflow==2.13.0
 keras-facenet
 mtcnn
-opencv-python
+opencv-python-headless
 numpy
 scikit-learn
