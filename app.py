@@ -96,7 +96,6 @@ SIM_THRESHOLD = st.slider(
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", width="stretch")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
         image.save(tmp.name)
@@ -113,9 +112,20 @@ if uploaded_file:
         if score < SIM_THRESHOLD:
             st.warning("No close celebrity match found.")
         else:
-            celeb_name = labels[idx]
+            celeb_name = labels[idx].replace("_", " ")
             match_img = Image.open(image_paths[idx])
 
-            st.success(f"Matched Celebrity: {celeb_name}")
+            # -----------------------------
+            # Two-column layout
+            # -----------------------------
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("Input Image")
+                st.image(image, width=300)
+
+            with col2:
+                st.subheader(f"Matched Celebrity: {celeb_name}")
+                st.image(match_img, width=300)
+
             st.write(f"Similarity score: **{score:.4f}**")
-            st.image(match_img, caption=celeb_name, width="stretch")
