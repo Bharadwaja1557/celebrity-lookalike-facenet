@@ -18,7 +18,7 @@ st.set_page_config(
 st.title("Celebrity Look-Alike Finder")
 
 # -----------------------------
-# Load models (cached)
+# Load models
 # -----------------------------
 @st.cache_resource
 def load_models():
@@ -29,33 +29,36 @@ def load_models():
 detector, embedder = load_models()
 
 # -----------------------------
-# Load embeddings (cached)
+# Load embeddings
 # -----------------------------
 @st.cache_data
 def load_data():
     embeddings = np.load("embeddings.npy")
     labels = np.load("labels.npy")
-    image_paths = np.load("image_paths.npy")
+    image_paths = np.load("image_paths.npy", allow_pickle=True)
     return embeddings, labels, image_paths
 
 embeddings, labels, image_paths = load_data()
 
 # -----------------------------
-# Face extraction (NO OpenCV)
+# Fix dataset paths
+# -----------------------------
+def resolve_image_path(path):
+    if os.path.exists(path):
+        return path
+    return path.replace("/content/", "")
+
+# -----------------------------
+# Face extraction (PIL only)
 # -----------------------------
 def extract_face(image_path, target_size=(160, 160)):
-    try:
-        img = Image.open(image_path).convert("RGB")
-    except Exception:
-        return None
-
+    img = Image.open(image_path).convert("RGB")
     img_np = np.asarray(img)
-    results = detector.detect_faces(img_np)
 
+    results = detector.detect_faces(img_np)
     if not results:
         return None
 
-    # pick largest detected face
     results = sorted(
         results,
         key=lambda r: r["box"][2] * r["box"][3],
@@ -65,29 +68,25 @@ def extract_face(image_path, target_size=(160, 160)):
     x, y, w, h = results[0]["box"]
     x, y = max(0, x), max(0, y)
 
-    face = img_np[y:y + h, x:x + w]
+    face = img_np[y:y+h, x:x+w]
     if face.size == 0:
         return None
 
-    face_img = Image.fromarray(face)
-    face_img = face_img.resize(target_size)
-    face_array = np.asarray(face_img).astype("float32")
-
-    return face_array
+    face = Image.fromarray(face).resize(target_size)
+    return np.asarray(face).astype("float32")
 
 # -----------------------------
-# Matching logic
+# Matching
 # -----------------------------
 def find_celebrity(face):
     face = np.expand_dims(face, axis=0)
+    emb = embedder.embeddings(face)
+    emb = emb / np.linalg.norm(emb)
 
-    embedding = embedder.embeddings(face)
-    embedding = embedding / np.linalg.norm(embedding)
+    sims = cosine_similarity(emb, embeddings)[0]
+    idx = np.argmax(sims)
 
-    similarities = cosine_similarity(embedding, embeddings)[0]
-    best_idx = np.argmax(similarities)
-
-    return best_idx, similarities[best_idx]
+    return idx, sims[idx]
 
 # -----------------------------
 # UI
@@ -99,24 +98,22 @@ uploaded_file = st.file_uploader(
 
 SIM_THRESHOLD = st.slider(
     "Similarity threshold",
-    min_value=0.50,
-    max_value=0.90,
-    value=0.65,
-    step=0.01
+    0.50, 0.90, 0.65, 0.01
 )
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+    st.image(image, caption="Uploaded Image", width="stretch")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
         image.save(tmp.name)
         temp_path = tmp.name
 
     face = extract_face(temp_path)
+    os.remove(temp_path)
 
     if face is None:
-        st.error("No face detected in the uploaded image.")
+        st.error("No face detected.")
     else:
         idx, score = find_celebrity(face)
 
@@ -124,10 +121,9 @@ if uploaded_file:
             st.warning("No close celebrity match found.")
         else:
             celeb_name = labels[idx]
-            match_img = Image.open(image_paths[idx])
+            img_path = resolve_image_path(image_paths[idx])
+            match_img = Image.open(img_path)
 
             st.success(f"Matched Celebrity: {celeb_name}")
             st.write(f"Similarity score: **{score:.4f}**")
-            st.image(match_img, caption=celeb_name, use_container_width=True)
-
-    os.remove(temp_path)
+            st.image(match_img, caption=celeb_name, width="stretch")
