@@ -41,14 +41,6 @@ def load_data():
 embeddings, labels, image_paths = load_data()
 
 # -----------------------------
-# Fix dataset paths
-# -----------------------------
-def resolve_image_path(path):
-    if os.path.exists(path):
-        return path
-    return path.replace("/content/", "")
-
-# -----------------------------
 # Face extraction (PIL only)
 # -----------------------------
 def extract_face(image_path, target_size=(160, 160)):
@@ -59,6 +51,7 @@ def extract_face(image_path, target_size=(160, 160)):
     if not results:
         return None
 
+    # pick largest face
     results = sorted(
         results,
         key=lambda r: r["box"][2] * r["box"][3],
@@ -121,8 +114,7 @@ if uploaded_file:
             st.warning("No close celebrity match found.")
         else:
             celeb_name = labels[idx]
-            img_path = resolve_image_path(image_paths[idx])
-            match_img = Image.open(img_path)
+            match_img = Image.open(image_paths[idx])
 
             st.success(f"Matched Celebrity: {celeb_name}")
             st.write(f"Similarity score: **{score:.4f}**")
