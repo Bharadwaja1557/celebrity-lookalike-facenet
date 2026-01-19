@@ -44,14 +44,17 @@ if uploaded_file is not None:
 
     query_embedding = get_embedding(face, embedder)
 
-    similarities = [
-        cosine_similarity(query_embedding, emb)
-        for emb in celebrity_embeddings
-    ]
+    similarities = []
 
-    best_idx = int(np.argmax(similarities))
-    best_score = similarities[best_idx]
+    for name, emb in celebrity_embeddings:
+        score = cosine_similarity(query_embedding, emb)
+        similarities.append((name, score))
+
+
+    best_match = max(similarities, key=lambda x: x[1])
+    best_name, best_score = best_match
 
     st.subheader("Best Match")
+    st.write(f"Celebrity: **{best_name}**")
     st.write(f"Similarity Score: **{best_score:.4f}**")
-    st.image(image_paths[best_idx], caption="Matched Celebrity")
+
