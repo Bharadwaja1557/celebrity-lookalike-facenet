@@ -1,6 +1,5 @@
 import streamlit as st
 import numpy as np
-import cv2
 from mtcnn.mtcnn import MTCNN
 from keras_facenet import FaceNet
 from sklearn.metrics.pairwise import cosine_similarity
@@ -11,11 +10,15 @@ import os
 # -----------------------------
 # App configuration
 # -----------------------------
-st.set_page_config(page_title="Celebrity Look-Alike Finder", layout="centered")
+st.set_page_config(
+    page_title="Celebrity Look-Alike Finder",
+    layout="centered"
+)
+
 st.title("Celebrity Look-Alike Finder")
 
 # -----------------------------
-# Load models (cached safely)
+# Load models (cached)
 # -----------------------------
 @st.cache_resource
 def load_models():
@@ -38,48 +41,53 @@ def load_data():
 embeddings, labels, image_paths = load_data()
 
 # -----------------------------
-# Face extraction
+# Face extraction (NO OpenCV)
 # -----------------------------
 def extract_face(image_path, target_size=(160, 160)):
-    img = cv2.imread(image_path)
-    if img is None:
+    try:
+        img = Image.open(image_path).convert("RGB")
+    except Exception:
         return None
 
-    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    results = detector.detect_faces(img_rgb)
+    img_np = np.asarray(img)
+    results = detector.detect_faces(img_np)
 
     if not results:
         return None
 
+    # pick largest detected face
     results = sorted(
         results,
-        key=lambda r: r['box'][2] * r['box'][3],
+        key=lambda r: r["box"][2] * r["box"][3],
         reverse=True
     )
 
-    x, y, w, h = results[0]['box']
+    x, y, w, h = results[0]["box"]
     x, y = max(0, x), max(0, y)
 
-    face = img_rgb[y:y+h, x:x+w]
+    face = img_np[y:y + h, x:x + w]
     if face.size == 0:
         return None
 
-    face = cv2.resize(face, target_size)
-    face = face.astype("float32")
-    return face
+    face_img = Image.fromarray(face)
+    face_img = face_img.resize(target_size)
+    face_array = np.asarray(face_img).astype("float32")
+
+    return face_array
 
 # -----------------------------
 # Matching logic
 # -----------------------------
 def find_celebrity(face):
     face = np.expand_dims(face, axis=0)
-    query_embedding = embedder.embeddings(face)
-    query_embedding = query_embedding / np.linalg.norm(query_embedding)
 
-    sims = cosine_similarity(query_embedding, embeddings)[0]
-    best_idx = np.argmax(sims)
+    embedding = embedder.embeddings(face)
+    embedding = embedding / np.linalg.norm(embedding)
 
-    return best_idx, sims[best_idx]
+    similarities = cosine_similarity(embedding, embeddings)[0]
+    best_idx = np.argmax(similarities)
+
+    return best_idx, similarities[best_idx]
 
 # -----------------------------
 # UI
@@ -91,8 +99,8 @@ uploaded_file = st.file_uploader(
 
 SIM_THRESHOLD = st.slider(
     "Similarity threshold",
-    min_value=0.5,
-    max_value=0.9,
+    min_value=0.50,
+    max_value=0.90,
     value=0.65,
     step=0.01
 )
@@ -119,7 +127,7 @@ if uploaded_file:
             match_img = Image.open(image_paths[idx])
 
             st.success(f"Matched Celebrity: {celeb_name}")
-            st.write(f"Similarity score: {score:.4f}")
+            st.write(f"Similarity score: **{score:.4f}**")
             st.image(match_img, caption=celeb_name, use_container_width=True)
 
     os.remove(temp_path)
