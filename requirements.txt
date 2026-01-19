@@ -1,7 +1,10 @@
 streamlit
 numpy
-opencv-python-headless
 scikit-learn
-mtcnn
+Pillow
+
+tensorflow==2.15.0
 keras-facenet
-tensorflow
+mtcnn
+
+opencv-python-headless

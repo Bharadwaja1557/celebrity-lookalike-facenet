@@ -1,60 +1,131 @@
 import streamlit as st
 import numpy as np
-import cv2
-import pickle
-
 from mtcnn.mtcnn import MTCNN
 from keras_facenet import FaceNet
+from sklearn.metrics.pairwise import cosine_similarity
+from PIL import Image
+import tempfile
+import os
 
-from face_utils import extract_face_from_array
-from embedding_utils import get_embedding
-from similarity_utils import cosine_similarity
+# -----------------------------
+# App configuration
+# -----------------------------
+st.set_page_config(
+    page_title="Celebrity Look-Alike Finder",
+    layout="centered"
+)
 
-st.set_page_config(page_title="Celebrity Lookalike", layout="centered")
+st.title("Celebrity Look-Alike Finder")
 
-st.title("Celebrity Lookalike Finder")
-
+# -----------------------------
 # Load models
-detector = MTCNN()
-embedder = FaceNet()
+# -----------------------------
+@st.cache_resource
+def load_models():
+    detector = MTCNN()
+    embedder = FaceNet()
+    return detector, embedder
 
+detector, embedder = load_models()
+
+# -----------------------------
 # Load embeddings
-with open("embeddings/celebrity_embeddings.pkl", "rb") as f:
-    celebrity_embeddings = pickle.load(f)
+# -----------------------------
+@st.cache_data
+def load_data():
+    embeddings = np.load("embeddings.npy")
+    labels = np.load("labels.npy")
+    image_paths = np.load("image_paths.npy", allow_pickle=True)
+    return embeddings, labels, image_paths
 
-image_paths = np.load("embeddings/image_paths.npy")
+embeddings, labels, image_paths = load_data()
 
+# -----------------------------
+# Face extraction (PIL only)
+# -----------------------------
+def extract_face(image_path, target_size=(160, 160)):
+    img = Image.open(image_path).convert("RGB")
+    img_np = np.asarray(img)
+
+    results = detector.detect_faces(img_np)
+    if not results:
+        return None
+
+    # pick largest face
+    results = sorted(
+        results,
+        key=lambda r: r["box"][2] * r["box"][3],
+        reverse=True
+    )
+
+    x, y, w, h = results[0]["box"]
+    x, y = max(0, x), max(0, y)
+
+    face = img_np[y:y+h, x:x+w]
+    if face.size == 0:
+        return None
+
+    face = Image.fromarray(face).resize(target_size)
+    return np.asarray(face).astype("float32")
+
+# -----------------------------
+# Matching
+# -----------------------------
+def find_celebrity(face):
+    face = np.expand_dims(face, axis=0)
+    emb = embedder.embeddings(face)
+    emb = emb / np.linalg.norm(emb)
+
+    sims = cosine_similarity(emb, embeddings)[0]
+    idx = np.argmax(sims)
+
+    return idx, sims[idx]
+
+# -----------------------------
+# UI
+# -----------------------------
 uploaded_file = st.file_uploader(
-    "Upload an image",
+    "Upload a face image",
     type=["jpg", "jpeg", "png"]
 )
 
-if uploaded_file is not None:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+SIM_THRESHOLD = st.slider(
+    "Similarity threshold",
+    0.50, 0.90, 0.65, 0.01
+)
 
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+if uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
 
-    face = extract_face_from_array(image, detector)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+        image.save(tmp.name)
+        temp_path = tmp.name
+
+    face = extract_face(temp_path)
+    os.remove(temp_path)
 
     if face is None:
-        st.error("No face detected. Please upload a clearer image.")
-        st.stop()
+        st.error("No face detected.")
+    else:
+        idx, score = find_celebrity(face)
 
-    query_embedding = get_embedding(face, embedder)
+        if score < SIM_THRESHOLD:
+            st.warning("No close celebrity match found.")
+        else:
+            celeb_name = labels[idx].replace("_", " ")
+            match_img = Image.open(image_paths[idx])
 
-    similarities = []
+            # -----------------------------
+            # Two-column layout
+            # -----------------------------
+            col1, col2 = st.columns(2)
 
-    for name, emb in celebrity_embeddings:
-        score = cosine_similarity(query_embedding, emb)
-        similarities.append((name, score))
+            with col1:
+                st.subheader("Input Image")
+                st.image(image, width=300)
 
+            with col2:
+                st.subheader(f"Matched Celebrity: {celeb_name}")
+                st.image(match_img, width=300)
 
-    best_match = max(similarities, key=lambda x: x[1])
-    best_name, best_score = best_match
-
-    st.subheader("Best Match")
-    st.write(f"Celebrity: **{best_name}**")
-    st.write(f"Similarity Score: **{best_score:.4f}**")
-
+            st.write(f"Similarity score: **{score:.4f}**")
