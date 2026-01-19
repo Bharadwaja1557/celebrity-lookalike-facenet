@@ -1,91 +1,57 @@
 import streamlit as st
 import numpy as np
-import pickle
 import cv2
+import pickle
+
+from mtcnn.mtcnn import MTCNN
+from keras_facenet import FaceNet
+
 from face_utils import extract_face_from_array
-from embedder import get_embedding
-from search import find_top_k
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
+from embedding_utils import get_embedding
+from similarity_utils import cosine_similarity
 
-# -------------------------------
-# Caching functions for efficiency
-# -------------------------------
-
-@st.cache_resource
-def load_models():
-    from keras_facenet import FaceNet
-    from mtcnn import MTCNN
-    embedder_model = FaceNet()
-    face_detector = MTCNN()
-    return embedder_model, face_detector
-
-@st.cache_data
-def load_embeddings():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    emb_path = os.path.join(base_dir, "embeddings", "celebrity_embeddings.pkl")
-    img_path = os.path.join(base_dir, "embeddings", "image_paths.npy")
-
-    with open(emb_path, "rb") as f:
-        celeb_db = pickle.load(f)
-
-    image_paths_db = np.load(img_path, allow_pickle=True)  # <-- fixed: remove .item()
-    return celeb_db, image_paths_db
-
-# -------------------------------
-# Load cached resources
-# -------------------------------
-
-embedder, detector = load_models()
-celeb_db, image_paths_db = load_embeddings()
-
-# -------------------------------
-# Streamlit UI
-# -------------------------------
+st.set_page_config(page_title="Celebrity Lookalike", layout="centered")
 
 st.title("Celebrity Lookalike Finder")
-st.write("Upload a face image and find your top 5 celebrity lookalikes!")
 
-uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+# Load models
+detector = MTCNN()
+embedder = FaceNet()
 
-if uploaded:
-    image_array = np.frombuffer(uploaded.read(), np.uint8)
-    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+# Load embeddings
+with open("embeddings/celebrity_embeddings.pkl", "rb") as f:
+    celebrity_embeddings = pickle.load(f)
 
-    st.image(image, caption="Uploaded Image", channels="BGR")
+image_paths = np.load("embeddings/image_paths.npy")
 
-    # Extract face
+uploaded_file = st.file_uploader(
+    "Upload an image",
+    type=["jpg", "jpeg", "png"]
+)
+
+if uploaded_file is not None:
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    st.image(image, caption="Uploaded Image", use_container_width=True)
+
     face = extract_face_from_array(image, detector)
 
     if face is None:
-        st.error("No face detected. Please upload a clear frontal face.")
-    else:
-        # Ensure correct shape for FaceNet
-        if len(face.shape) == 3:
-            face = np.expand_dims(face, axis=0)
+        st.error("No face detected. Please upload a clearer image.")
+        st.stop()
 
-        # Generate embedding
-        query_embedding = get_embedding(face, embedder)
-        if face is None:
-            st.error("No face detected. Please upload a clear image.")
-            st.stop()
+    query_embedding = get_embedding(face, embedder)
 
-        query_embedding = get_embedding(face, embedder)
+    similarities = [
+        cosine_similarity(query_embedding, emb)
+        for emb in celebrity_embeddings
+    ]
 
+    best_idx = int(np.argmax(similarities))
+    best_score = similarities[best_idx]
 
-        # Find top 5 matches
-        results = find_top_k(query_embedding, celeb_db, image_paths_db, k=5)
-
-        st.subheader("Top Matches")
-        for celeb, score, img_path in results:
-            col1, col2 = st.columns([1, 2])
-
-            match_img = cv2.imread(img_path)
-            if match_img is not None:
-                match_img = cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB)
-                col1.image(match_img, width=120)
-            else:
-                col1.write("Image not found")
-
-            col2.write(f"**{celeb}**")
-            col2.write(f"Similarity: {score:.3f}")
+    st.subheader("Best Match")
+    st.write(f"Similarity Score: **{best_score:.4f}**")
+    st.image(image_paths[best_idx], caption="Matched Celebrity")
